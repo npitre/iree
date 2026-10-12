@@ -160,6 +160,40 @@ func.func @symmetric_per_channel_group(
 
 // -----
 
+// CHECK: #map = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: #map1 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)>
+// CHECK-LABEL: func.func @per_token(
+// CHECK: iree_linalg_ext.quantize_affine
+// CHECK-SAME: indexing_maps = [#map, #map1, #map1, #map]
+// CHECK-SAME: ins({{.*}} : tensor<?x2x4x16xf32>, tensor<?x2x4xf64>, tensor<?x2x4xi64>)
+// CHECK: iree_linalg_ext.dequantize_affine
+// CHECK-SAME: indexing_maps = [#map, #map1, #map1, #map]
+// CHECK-SAME: ins({{.*}} : tensor<?x2x4x16xi8>, tensor<?x2x4xf64>, tensor<?x2x4xi64>)
+func.func @per_token(
+    %input: !torch.vtensor<[?,2,4,16],f32>,
+    %scales: !torch.vtensor<[?,2,4,1],f64>,
+    %zero_points: !torch.vtensor<[?,2,4,1],si64>)
+    -> !torch.vtensor<[?,2,4,16],f32> {
+  %minimum = torch.constant.int -128
+  %maximum = torch.constant.int 127
+  %dtype = torch.constant.int 1
+  %out_dtype = torch.constant.int 6
+  %quantized = torch.quantized_decomposed.quantize_per_token
+      %input, %scales, %zero_points, %minimum, %maximum, %dtype
+      : !torch.vtensor<[?,2,4,16],f32>, !torch.vtensor<[?,2,4,1],f64>,
+        !torch.vtensor<[?,2,4,1],si64>, !torch.int, !torch.int, !torch.int
+        -> !torch.vtensor<[?,2,4,16],si8>
+  %result = torch.quantized_decomposed.dequantize_per_token
+      %quantized, %scales, %zero_points, %minimum, %maximum, %dtype,
+      %out_dtype
+      : !torch.vtensor<[?,2,4,16],si8>, !torch.vtensor<[?,2,4,1],f64>,
+        !torch.vtensor<[?,2,4,1],si64>, !torch.int, !torch.int, !torch.int,
+        !torch.int -> !torch.vtensor<[?,2,4,16],f32>
+  return %result : !torch.vtensor<[?,2,4,16],f32>
+}
+
+// -----
+
 // Dynamic bounds cannot be represented as LinalgExt attributes. The pass
 // leaves this op for the general Torch-to-Linalg lowering that follows it.
 // CHECK-LABEL: func.func @dynamic_bounds(
